@@ -94,7 +94,14 @@ final class NotificationService {
 
     // MARK: Sending
 
-    func send(_ t: Template, quiet: Bool = false) async {
+    /// Names of templates sent from outside the library (e.g. the CLI), for log attribution.
+    private var adhocNames: [UUID: String] = [:]
+
+    /// Sends `t` (repeatCount times) and returns the notification identifiers that were accepted.
+    @discardableResult
+    func send(_ t: Template, quiet: Bool = false, source: String = "") async -> [String] {
+        if AppState.shared.index(of: t.id) == nil { adhocNames[t.id] = t.name }
+        var ids: [String] = []
         if !quiet, authStatus != .denied, let blocker = Diagnostics.shared.blockers.first {
             log(.warning, "Banner will probably be hidden: \(blocker.title)", blocker.summary, template: t)
         }
@@ -143,13 +150,14 @@ final class NotificationService {
 
             do {
                 try await center.add(request)
+                ids.append(identifier)
                 let suffix = count > 1 ? " (\(i + 1)/\(count))" : ""
                 if t.delay > 0 {
                     scheduled[identifier] = (Date().addingTimeInterval(interval), interval, t.id, t.name)
                     log(.scheduled, "Scheduled “\(t.title)”\(suffix)", "fires in \(String(format: "%.1f", interval))s",
                         template: t, nid: identifier)
                 } else {
-                    log(.sent, "Sent “\(t.title)”\(suffix)", "", template: t, nid: identifier)
+                    log(.sent, "Sent “\(t.title)”\(suffix)", source, template: t, nid: identifier)
                 }
             } catch {
                 log(.error, "Send failed", error.localizedDescription, template: t)
@@ -161,6 +169,12 @@ final class NotificationService {
         }
         sendProgress = nil
         await refreshDelivered()
+        return ids
+    }
+
+    func setBadge(_ n: Int) async {
+        try? await center.setBadgeCount(n)
+        log(.info, n == 0 ? "Cleared Dock badge" : "Set Dock badge to \(n)")
     }
 
     /// Categories carry the action buttons and dismiss option; one per distinct configuration.
@@ -273,21 +287,25 @@ final class NotificationService {
         let tname = name(of: r.template)
         switch r.action {
         case UNNotificationDefaultActionIdentifier:
+            CLIServer.shared.didRespond(notificationID: r.id, ["event": "clicked"])
             log(.clicked, "Clicked “\(r.title)”", clickDescription(r), templateID: r.template, templateName: tname, nid: r.id)
             performClick(r)
         case UNNotificationDismissActionIdentifier:
+            CLIServer.shared.didRespond(notificationID: r.id, ["event": "dismissed"])
             log(.dismissed, "Dismissed “\(r.title)”", "", templateID: r.template, templateName: tname, nid: r.id)
         case "reply":
+            CLIServer.shared.didRespond(notificationID: r.id, ["event": "reply", "reply": r.replyText ?? ""])
             log(.reply, "Reply", r.replyText ?? "(empty)", templateID: r.template, templateName: tname, nid: r.id)
         default:
             let index = Int(r.action.split(separator: ".").last ?? "") ?? -1
             let name = r.actionTitles.indices.contains(index) ? r.actionTitles[index] : r.action
+            CLIServer.shared.didRespond(notificationID: r.id, ["event": "action", "action": name])
             log(.action, "Pressed “\(name)”", "on “\(r.title)”", templateID: r.template, templateName: tname, nid: r.id)
         }
     }
 
     private func name(of template: UUID?) -> String {
-        template.flatMap { id in AppState.shared.templates.first { $0.id == id }?.name } ?? ""
+        template.flatMap { id in AppState.shared.templates.first { $0.id == id }?.name ?? adhocNames[id] } ?? ""
     }
 
     private func clickDescription(_ r: Response) -> String {
@@ -383,6 +401,7 @@ final class NotificationService {
 
     private func insert(_ e: LogEvent) {
         events.insert(e, at: 0)
+        CLIServer.shared.didLog(e)
         if e.kind == .error { lastError = e }
         if events.count > 1000 { events.removeLast(events.count - 1000) }
     }

@@ -13,6 +13,7 @@ enum ScreenshotMode {
     static var isActive: Bool { env["NOTIFLAB_SNAPSHOT"] != nil }
     static var forceHover: Bool { isActive && ["editor", "light"].contains(scene) }
     private static var scene: String { env["NOTIFLAB_SCENE"] ?? "editor" }
+    static var settingsTab: String? { isActive && scene == "settings" ? "cli" : nil }
 
     static func runIfRequested() {
         guard let out = env["NOTIFLAB_SNAPSHOT"] else { return }
@@ -37,6 +38,9 @@ enum ScreenshotMode {
             state.selection = .template(actions.id)
             state.selection = .diagnostics
             Diagnostics.shared.expanded = ["capture"]
+        case "settings":
+            state.selection = .template(actions.id)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { state.openSettingsAction?() }
         case "guide":
             state.selection = .diagnostics
             Diagnostics.shared.testState = .guiding(step: 0)
@@ -52,7 +56,10 @@ enum ScreenshotMode {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             // The largest visible window is the main one (helper windows like text-completion panels can also be visible).
-            let main = NSApp.windows.filter(\.isVisible).max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+            let visible = NSApp.windows.filter(\.isVisible)
+            let settings = visible.first { $0.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true }
+            let main = scene == "settings" ? settings
+                : visible.max { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
             guard let view = main?.contentView?.superview,
                   let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }
             view.cacheDisplay(in: view.bounds, to: rep)

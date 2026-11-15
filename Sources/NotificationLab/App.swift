@@ -19,6 +19,10 @@ struct NotificationLabApp: App {
         .commands {
             SidebarCommands()
 
+            CommandGroup(after: .appSettings) {
+                Button("Install Command Line Tool…") { Task { await CLIInstaller.shared.install() } }
+            }
+
             CommandGroup(replacing: .newItem) {
                 Button("New Template") { state.newTemplate() }
                     .keyboardShortcut("n")
@@ -70,6 +74,10 @@ struct NotificationLabApp: App {
                 Divider()
             }
         }
+
+        Settings {
+            SettingsView()
+        }
     }
 }
 
@@ -79,7 +87,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        MainActor.assumeIsolated { ScreenshotMode.runIfRequested() }
+        MainActor.assumeIsolated {
+            // Started here rather than from a view so a hidden, CLI-launched app is fully live.
+            CLIServer.shared.start()
+            Task {
+                await NotificationService.shared.start()
+                Diagnostics.shared.startMonitoring()
+            }
+            ScreenshotMode.runIfRequested()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -89,6 +105,7 @@ struct RootView: View {
     @Environment(AppState.self) private var state
     @Environment(NotificationService.self) private var service
     @State private var columns: NavigationSplitViewVisibility = .all
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         @Bindable var state = state
@@ -100,6 +117,7 @@ struct RootView: View {
             // Status bar is a real row (not a safe-area inset): split views and tables
             // don't honour insets, which hid their last row under the bar.
             VStack(spacing: 0) {
+                CLIBanner()
                 center
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 StatusBar()
@@ -136,16 +154,14 @@ struct RootView: View {
                 .help("Toggle Inspector (⌥⌘I)")
             }
         }
+        .onAppear { state.openSettingsAction = { openSettings() } }
         .overlay {
             if state.showPalette {
                 CommandPalette()
                     .transition(.opacity.animation(.easeOut(duration: 0.12)))
             }
         }
-        .task {
-            await service.start()
-            Diagnostics.shared.startMonitoring()
-        }
+
     }
 
     @ViewBuilder private var center: some View {

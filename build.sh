@@ -17,7 +17,7 @@ done
 
 APP="build/Notification Lab.app"
 swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
-BIN="$(swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)/NotificationLab"
+BIN_DIR="$(swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)"
 
 # Icon (generated once)
 if [ ! -f build/AppIcon.icns ]; then
@@ -31,10 +31,13 @@ if [ ! -f build/AppIcon.icns ]; then
 fi
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN" "$APP/Contents/MacOS/"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
+cp "$BIN_DIR/NotificationLab" "$APP/Contents/MacOS/"
+cp "$BIN_DIR/notiflab" "$APP/Contents/Helpers/"
 cp Support/Info.plist "$APP/Contents/"
 cp build/AppIcon.icns "$APP/Contents/Resources/"
+# Sign the nested CLI first, then the app (which seals it).
+codesign --force --sign - "$APP/Contents/Helpers/notiflab" >/dev/null
 codesign --force --sign - "$APP" >/dev/null
 echo "Built $APP ($(lipo -archs "$APP/Contents/MacOS/NotificationLab"))"
 

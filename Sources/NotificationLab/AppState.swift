@@ -21,6 +21,12 @@ final class AppState {
     var persistenceEnabled = true
     /// Text the command palette opens with.
     var paletteSeed = ""
+    /// Set by the root view (SwiftUI only exposes openSettings through the environment).
+    var openSettingsAction: (() -> Void)?
+
+    func revealTemplatesFile() {
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+    }
     var selection: SidebarItem? = nil {
         didSet { if case .template(let id) = selection { lastTemplateID = id } }
     }
@@ -216,6 +222,11 @@ final class AppState {
         list.append(.init(id: "diag.restart", section: .actions, title: "Restart Notification Center", symbol: "arrow.clockwise") {
             Diagnostics.shared.perform(.restartNotificationCenter)
         })
+        list.append(.init(id: "cli.install", section: .actions,
+                          title: CLIInstaller.shared.isInstalled ? "Reinstall Command Line Tool" : "Install Command Line Tool",
+                          symbol: "terminal") { Task { await CLIInstaller.shared.install() } })
+        list.append(.init(id: "settings.open", section: .actions, title: "Settings…", symbol: "gearshape",
+                          shortcut: "⌘,") { self.openSettingsAction?() })
         list.append(.init(id: "go.diagnostics", section: .navigate, title: "Diagnostics", symbol: "stethoscope",
                           shortcut: "⌘4", detail: Diagnostics.shared.issueCount > 0 ? "\(Diagnostics.shared.issueCount) issues" : "") {
             self.selection = .diagnostics

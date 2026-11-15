@@ -130,6 +130,13 @@ final class Diagnostics {
 
     func isAcknowledged(_ id: String) -> Bool { acknowledged.contains(id) }
 
+    var ignoredCount: Int { storedAcknowledged.count }
+
+    func resetAcknowledged() {
+        storedAcknowledged.removeAll()
+        UserDefaults.standard.removeObject(forKey: "diag.acknowledged")
+    }
+
     func toggleAcknowledged(_ id: String) {
         if storedAcknowledged.contains(id) { storedAcknowledged.remove(id) } else { storedAcknowledged.insert(id) }
         UserDefaults.standard.set(Array(storedAcknowledged), forKey: "diag.acknowledged")

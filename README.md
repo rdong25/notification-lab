@@ -2,7 +2,7 @@
 
 A native macOS workbench for designing, sending and debugging local notifications.
 
-Build a notification, see an accurate preview, send it with ⌘↩, and watch everything that happens to it: delivery, clicks, button presses, replies, dismissals. When a banner doesn't show up, the built-in diagnostics tell you why and how to fix it.
+Build a notification, see an accurate preview, send it with ⌘↩, and watch everything that happens to it: delivery, clicks, button presses, replies, dismissals. When a banner doesn't show up, the built-in diagnostics tell you why and how to fix it. The bundled **`notiflab`** command-line tool brings all of it to your terminal and scripts.
 
 ![Notification Lab: template editor with live banner preview, history and inspector](docs/screenshots/editor.png)
 
@@ -16,6 +16,7 @@ Build a notification, see an accurate preview, send it with ⌘↩, and watch ev
 - **Notification Center and Scheduled views**: see what's delivered, remove items, and watch scheduled notifications count down.
 - **Inspector**: shows the exact `UserNotifications` Swift code for the current template, plus request details, `userInfo` JSON and the app's live notification settings.
 - **Diagnostics**: detects the usual and less obvious reasons banners don't appear, and walks you through fixing each one (see below).
+- **Command-line tool**: `notiflab` sends, waits for a click, action or reply, lists, cancels, diagnoses and streams the log. See [Command-line tool](#command-line-tool).
 - **Keyboard-first**: a ⌘K command palette and shortcuts for everything. Works in light and dark mode.
 
 | Command palette | Activity |
@@ -44,15 +45,75 @@ A notification can land in Notification Center without ever sliding in as a bann
 |---|---|
 | ![Diagnostics](docs/screenshots/diagnostics.png) | ![Guided troubleshooting](docs/screenshots/guide.png) |
 
+## Command-line tool
+
+`notiflab` ships inside the app. Install it from the banner in the main window or from **Settings → Command Line**. That links it into `/opt/homebrew/bin` or `/usr/local/bin`, asking for your password only if neither is writable. To install it by hand:
+
+```sh
+sudo mkdir -p /usr/local/bin
+sudo ln -sf "/Applications/Notification Lab.app/Contents/Helpers/notiflab" /usr/local/bin/notiflab
+```
+
+macOS only lets app bundles post notifications, and it routes clicks back to the app. So `notiflab` is a thin client that talks to Notification Lab over local distributed notifications, starting it hidden in the background if it isn't running. Every send shows up in the app's Activity log too.
+
+```sh
+# Send
+notiflab send -t "Build finished" -m "All 128 tests passed" --sound Glass
+make test 2>&1 | tail -1 | notiflab send -t "make test" -m -     # body from stdin
+notiflab send -t "Uploading" -m "45%" -g upload --silent          # same -g replaces in place
+notiflab send -t "Standup" -d 10m                                 # schedule
+notiflab send -T "Burst of 5" -t "Overridden title"               # start from a saved template
+
+# Ask and wait: prints clicked | action:<title> | reply:<text> | dismissed
+choice=$(notiflab send -t "Deploy to production?" -a Deploy@paperplane -a "Cancel@xmark!" --wait --timeout 2m)
+[ "$choice" = "action:Deploy" ] && ./deploy.sh
+
+notiflab send -t "Alex" -m "Lunch?" --reply "Type a reply…" --wait   # → reply:Sounds good
+
+# Inspect and manage
+notiflab templates              # saved templates (templates NAME prints one as JSON)
+notiflab list                   # in Notification Center
+notiflab pending                # scheduled, with countdowns
+notiflab remove --all           # or IDs; `cancel` for scheduled ones
+notiflab badge 3                # badge clear
+notiflab log -f                 # stream activity live
+
+# Debug
+notiflab status                 # permission and settings
+notiflab diagnose               # what's hiding banners (exit 3 if something is)
+notiflab test                   # send a test banner, then walk through fixes interactively
+notiflab snippet -t Hi -a OK    # print the UserNotifications Swift code
+```
+
+| Option | Meaning |
+|---|---|
+| `-t` `-s` `-m` | title, subtitle, message (`-m -` reads stdin; bare words also become the message) |
+| `-T NAME` | start from a saved template, then apply the other options |
+| `--sound NAME`, `--silent` | `default`, `none`, or a system sound such as `Glass` |
+| `--level`, `--passive` | `passive`, `active`, `time-sensitive`, `critical` |
+| `-g ID`, `--thread ID` | identifier (replaces a previous notification) and stack grouping |
+| `-d 5s`, `-n 5`, `--badge 3` | delay, repeat count, Dock badge |
+| `-o URL`, `--activate ID`, `-x CMD` | on click: open a URL, activate an app, run a shell command |
+| `-a TITLE[@symbol][!]` | action button with optional SF Symbol; `!` makes it destructive (up to 4) |
+| `-r [PLACEHOLDER]`, `--reply-button` | inline text reply |
+| `-i PATH` | image attachment |
+| `-w`, `--timeout 2m` | wait for the response and print it |
+| `--json` | machine-readable output, for any command |
+
+Data goes to stdout and progress goes to stderr. Exit codes: `0` ok · `1` error · `2` app unavailable · `3` banner blockers found · `4` timed out. Run `notiflab help send` for everything.
+
+![Settings → Command Line](docs/screenshots/settings.png)
+
 ## Install
 
-1. Download `NotificationLab-1.0.0.zip` from the [latest release](../../releases/latest) and unzip it.
+1. Download the zip from the [latest release](../../releases/latest) and unzip it.
 2. Move **Notification Lab.app** to `/Applications`.
 3. The app is ad-hoc signed, not notarized, so macOS blocks the first launch. Open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**. Or clear the quarantine flag from Terminal:
    ```sh
    xattr -dr com.apple.quarantine "/Applications/Notification Lab.app"
    ```
 4. Click **Allow** when asked for notification permission.
+5. Optional: click **Install notiflab** in the banner to get the command-line tool.
 
 Requires macOS 14 Sonoma or later. Universal binary (Apple Silicon and Intel).
 
@@ -68,7 +129,7 @@ cd notification-lab
 scripts/package.sh         # universal build, zipped for release
 ```
 
-This is a plain Swift package with no Xcode project. `build.sh` compiles the package, wraps the binary in an `.app` bundle with `Support/Info.plist` and a generated icon, and ad-hoc signs it. macOS only grants notification permission to apps with a bundle identifier, which is why the app has to run from the bundle.
+This is a plain Swift package with no Xcode project and two executables: the app and `notiflab`. `build.sh` compiles both, wraps the app in an `.app` bundle with `Support/Info.plist` and a generated icon, embeds `notiflab` at `Contents/Helpers/`, and ad-hoc signs it all. To try the CLI without installing it, run `"build/Notification Lab.app/Contents/Helpers/notiflab" help`. macOS only grants notification permission to apps with a bundle identifier, which is why the app has to run from the bundle.
 
 ## Keyboard shortcuts
 
@@ -85,6 +146,7 @@ This is a plain Swift package with no Xcode project. `build.sh` compiles the pac
 | ⇧⌘C | Copy the Swift snippet |
 | ⇧⌘⌫ | Remove all delivered notifications |
 | ⌥⌘K | Clear the activity log |
+| ⌘, | Settings (command-line tool, banner, diagnostics) |
 | ⌫ | Delete the selected template, notification or scheduled item |
 
 ## How it works
@@ -104,6 +166,8 @@ This is a plain Swift package with no Xcode project. `build.sh` compiles the pac
 ## Project layout
 
 ```
+Sources/notiflab/
+  main.swift                The command-line client
 Sources/NotificationLab/
   App.swift                 App entry, menus and shortcuts, root split view
   AppState.swift            Template library, selection, command-palette commands
@@ -115,6 +179,9 @@ Sources/NotificationLab/
   Chrome.swift              Inspector, status bar, command palette
   Components.swift          Shared views, including the banner preview
   Model.swift               Template model, Swift snippet generator, theme
+  CLIServer.swift           Answers notiflab requests (distributed notifications)
+  CLIInstaller.swift        Links notiflab onto the PATH
+  SettingsView.swift        Settings window and the install banner
   ScreenshotMode.swift      Renders README screenshots with demo data
 Support/Info.plist
 scripts/make_icon.swift     Generates the app icon
@@ -131,7 +198,7 @@ open -n --env NOTIFLAB_SNAPSHOT="$PWD/docs/screenshots/editor.png" \
         "build/Notification Lab.app"
 ```
 
-Scenes: `editor`, `palette`, `activity`, `diagnostics`, `guide`. Appearance: `dark` or `light`.
+Scenes: `editor`, `palette`, `activity`, `diagnostics`, `guide`, `settings`. Appearance: `dark` or `light`.
 
 <details>
 <summary>Light mode</summary>
